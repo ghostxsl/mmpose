@@ -1,17 +1,12 @@
-# Copyright (c) OpenMMLab. All rights reserved.
 import os
 
 import numpy as np
 from infer_rtmpose_blend import mkdir_or_exist
 from PIL import Image
 
-rtmpose_dir = '/Users/wilson.xu/PR/mmpose/demo/mmpose_0620/man'
-openpose_dir = '/Users/wilson.xu/PR/mmpose/demo/openpose_0620/man'
+rtmpose_dir = '/Users/wilson.xu/PR/mmpose/output_rtmpose/man'
+openpose_dir = '/Users/wilson.xu/PR/demo/openpose_0620/man'
 out_dir = 'merge_res/man'
-
-# rtmpose_dir = "/Users/wilson.xu/PR/mmpose/demo/mmpose_0620/woman"
-# openpose_dir = "/Users/wilson.xu/PR/mmpose/demo/openpose_0620/woman"
-# out_dir = "merge_res/woman"
 
 mkdir_or_exist(out_dir)
 

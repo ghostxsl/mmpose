@@ -6,7 +6,6 @@ accelerate
 einops
 kornia
 lpips
-open_clip
 pandas
 transformers
 easydict

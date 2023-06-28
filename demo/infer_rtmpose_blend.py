@@ -405,7 +405,7 @@ class RTMPoseInfer(object):
                                          face_bboxes)
         return merge_data_samples(pose_results).get('pred_instances', None), canvas
 
-    def __call__(self, img, canvas=None, mode="mmpose", **kwargs):
+    def __call__(self, img, canvas=None, mode="openpose", **kwargs):
         """
         Args:
             img (ndarray):
@@ -462,7 +462,8 @@ def main():
 
     parser.add_argument(
         '--img_file', type=str, default=None, help='Image file')
-    parser.add_argument('--img_dir', type=str, default=None, help='Image dir')
+    parser.add_argument(
+        '--img_dir', type=str, default=None, help='Image dir')
     parser.add_argument(
         '--out_dir',
         type=str,
