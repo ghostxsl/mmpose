@@ -1,6 +1,5 @@
-# Copyright (c) OpenMMLab. All rights reserved.
+# Copyright (c) wilson.xu. All rights reserved.
 from collections import OrderedDict
-
 import cv2
 import numpy as np
 import torch
@@ -8,16 +7,17 @@ import torch.nn as nn
 from scipy.ndimage.filters import gaussian_filter
 from skimage.measure import label
 
-from . import util
+from mmpose.blendpose import utils
 
 
 class Hand(object):
 
     def __init__(self, model_path, device='cuda'):
         self.device = device
-        self.model = HandPoseModel().to(device)
-        model_dict = util.transfer(self.model, torch.load(model_path))
-        self.model.load_state_dict(model_dict)
+        model = HandPoseModel()
+        model_dict = utils.transfer(model, torch.load(model_path))
+        model.load_state_dict(model_dict)
+        self.model = model.to(device)
         self.model.eval()
         print(f'Loads checkpoint by local backend from path: {model_path}')
 
@@ -37,7 +37,7 @@ class Hand(object):
                 fx=scale,
                 fy=scale,
                 interpolation=cv2.INTER_CUBIC)
-            imageToTest_padded, pad = util.padRightDownCorner(
+            imageToTest_padded, pad = utils.padRightDownCorner(
                 imageToTest, stride, padValue)
             im = np.transpose(
                 np.float32(imageToTest_padded[:, :, :, np.newaxis]),
@@ -72,7 +72,7 @@ class Hand(object):
                 one_heatmap > threshold, dtype=np.uint8)
             # 全部小于阈值
             if np.sum(binary) == 0:
-                all_peaks.append([0, 0])
+                all_peaks.append([-1, -1])
                 continue
             label_img, label_numbers = label(
                 binary, return_num=True, connectivity=binary.ndim)
@@ -83,9 +83,29 @@ class Hand(object):
             label_img[label_img != max_index] = 0
             map_ori[label_img == 0] = 0
 
-            y, x = util.npmax(map_ori)
+            y, x = utils.npmax(map_ori)
             all_peaks.append([x, y])
-        return np.array(all_peaks)
+        return np.asarray(all_peaks)
+
+
+def make_layers(block, no_relu_layers):
+    layers = []
+    for layer_name, v in block.items():
+        if 'pool' in layer_name:
+            layer = nn.MaxPool2d(kernel_size=v[0], stride=v[1], padding=v[2])
+            layers.append((layer_name, layer))
+        else:
+            conv2d = nn.Conv2d(
+                in_channels=v[0],
+                out_channels=v[1],
+                kernel_size=v[2],
+                stride=v[3],
+                padding=v[4])
+            layers.append((layer_name, conv2d))
+            if layer_name not in no_relu_layers:
+                layers.append(('relu_' + layer_name, nn.ReLU(inplace=True)))
+
+    return nn.Sequential(OrderedDict(layers))
 
 
 class HandPoseModel(nn.Module):
@@ -160,23 +180,3 @@ class HandPoseModel(nn.Module):
         concat_stage6 = torch.cat([out_stage5, out1_0], 1)
         out_stage6 = self.model6(concat_stage6)
         return out_stage6
-
-
-def make_layers(block, no_relu_layers):
-    layers = []
-    for layer_name, v in block.items():
-        if 'pool' in layer_name:
-            layer = nn.MaxPool2d(kernel_size=v[0], stride=v[1], padding=v[2])
-            layers.append((layer_name, layer))
-        else:
-            conv2d = nn.Conv2d(
-                in_channels=v[0],
-                out_channels=v[1],
-                kernel_size=v[2],
-                stride=v[3],
-                padding=v[4])
-            layers.append((layer_name, conv2d))
-            if layer_name not in no_relu_layers:
-                layers.append(('relu_' + layer_name, nn.ReLU(inplace=True)))
-
-    return nn.Sequential(OrderedDict(layers))
