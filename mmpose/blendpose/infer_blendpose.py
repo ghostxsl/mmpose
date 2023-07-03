@@ -8,6 +8,7 @@ import numpy as np
 
 from mmengine import mkdir_or_exist
 from mmpose.blendpose.inferencer import VIPPoseInferencer
+from mmpose.blendpose.utils import pkl_save
 
 
 def main():
@@ -81,6 +82,8 @@ def main():
         '--alpha', type=float, default=0.8, help='The transparency of bboxes')
     parser.add_argument(
         '--draw_bbox', action='store_true', help='Draw bboxes of instances')
+    parser.add_argument(
+        '--is_hand_intersection', action='store_true', help='is_hand_intersection')
 
     args = parser.parse_args()
     assert args.det_config is not None
@@ -97,6 +100,7 @@ def main():
         handpose_pth=args.hand_pth,
         facepose_cfg=args.face_cfg,
         facepose_pth=args.face_pth,
+        is_hand_intersection=args.is_hand_intersection,
         kpt_thr=args.kpt_thr,
         bbox_thr=args.bbox_thr,
         nms_thr=args.nms_thr,
@@ -109,38 +113,29 @@ def main():
         if args.return_results:
             mkdir_or_exist(os.path.join(args.out_dir, "pose"))
             mkdir_or_exist(os.path.join(args.out_dir, "res"))
-        for line in os.listdir(args.img_dir):
+        img_list = os.listdir(args.img_dir)
+        for i, line in enumerate(img_list):
             if os.path.splitext(line)[-1].lower() in ['.jpg', '.png']:
                 # inference
                 img_file = os.path.join(args.img_dir, line)
                 img = np.asarray(Image.open(img_file).convert("RGB"))
                 if args.return_results:
                     canvas, results = inferencer(img.copy(), img.copy())
+                    pkl_save(results,
+                             os.path.join(args.out_dir, "pose", line.split('.')[0] + "_pose.pkl"))
                     save_name = os.path.join(args.out_dir, "res", line)
-                    body, hand, face = results
-                    if body is not None:
-                        np.save(os.path.join(args.out_dir, "pose", line.split('.')[0] + "_body"), body)
-                    if hand is not None:
-                        np.save(os.path.join(args.out_dir, "pose", line.split('.')[0] + "_hand"), hand)
-                    if face is not None:
-                        np.save(os.path.join(args.out_dir, "pose", line.split('.')[0] + "_face"), face)
                 else:
                     canvas = inferencer(img.copy(), img.copy())
                     save_name = os.path.join(args.out_dir, line)
                 Image.fromarray(canvas).save(save_name)
-                print(f"{save_name} has been saved")
+                print(f"{i + 1}/{len(img_list)}: {save_name} has been saved")
     elif args.img_file:
         img = np.asarray(Image.open(args.img_file).convert("RGB"))
         name = os.path.basename(args.img_file)
         if args.return_results:
             canvas, results = inferencer(img.copy(), img.copy())
-            body, hand, face = results
-            if body is not None:
-                np.save(os.path.join(args.out_dir, name.split('.')[0] + "_body"), body)
-            if hand is not None:
-                np.save(os.path.join(args.out_dir, name.split('.')[0] + "_hand"), hand)
-            if face is not None:
-                np.save(os.path.join(args.out_dir, name.split('.')[0] + "_face"), face)
+            pkl_save(results,
+                     os.path.join(args.out_dir, name.split('.')[0] + "_pose.pkl"))
         else:
             canvas = inferencer(img.copy(), img.copy())
         Image.fromarray(canvas).save(os.path.join(args.out_dir, name))

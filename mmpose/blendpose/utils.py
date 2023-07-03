@@ -3,6 +3,18 @@ import math
 import cv2
 import matplotlib
 import numpy as np
+import pickle
+
+
+def pkl_save(obj, file):
+    with open(file, 'wb') as f:
+        pickle.dump(obj, f)
+
+
+def pkl_load(file):
+    with open(file, 'rb') as f:
+        out = pickle.load(f)
+    return out
 
 
 def mmpose2openpose(body_kpts, body_kpt_scores, kpt_thr=0.4):
@@ -199,11 +211,15 @@ def get_bbox_intersection(bbox1, bbox2):
 
     Returns: `inter_bbox`: shape[..., 4], `x1y1x2y2` format.
     """
-    x1 = np.maximum(bbox1[..., 0], bbox2[..., 0])
-    y1 = np.maximum(bbox1[..., 1], bbox2[..., 1])
-    x2 = np.minimum(bbox1[..., 2], bbox2[..., 2])
-    y2 = np.minimum(bbox1[..., 3], bbox2[..., 3])
-    return np.stack([x1, y1, x2, y2], axis=-1)
+    x1 = np.maximum(bbox1[..., 0:1], bbox2[..., 0:1])
+    y1 = np.maximum(bbox1[..., 1:2], bbox2[..., 1:2])
+    x2 = np.minimum(bbox1[..., 2:3], bbox2[..., 2:3])
+    y2 = np.minimum(bbox1[..., 3:4], bbox2[..., 3:4])
+    w = np.maximum(0.0, x2 - x1)
+    h = np.maximum(0.0, y2 - y1)
+    inter_areas = w * h
+    inter_bbox = np.concatenate([x1, y1, x2, y2], axis=-1)
+    return np.where(inter_areas > 0, inter_bbox, 0)
 
 
 def transfer(model, model_weights):
