@@ -1,29 +1,28 @@
 # Copyright (c) wilson.xu. All rights reserved.
 import os
-import os.path as osp
+from os.path import exists, join, splitext, expanduser
 import random
 import numpy as np
+from mmpose.blendpose.utils import pkl_load
 
 
 class TemplatePoseAdapter(object):
     def __init__(self, template_dir):
-        template_dir = osp.expanduser(template_dir)
+        template_dir = expanduser(template_dir)
         self.template = self.create_template_dict(template_dir)
 
     @staticmethod
     def create_template_dict(template_dir):
-        out_dict = dict()
-        lists = [a for a in os.listdir(template_dir) if osp.splitext(
+        src_dir = join(template_dir, "src")
+        pose_dir = join(template_dir, "pose")
+        lists = [a for a in os.listdir(src_dir) if splitext(
             a)[-1].lower() in ['.jpg', '.png']]
+        out_dict = dict()
         for i, name in enumerate(lists):
-            prefix = osp.splitext(name)[0]
-            if osp.exists(osp.join(template_dir, prefix + '_body.npy')):
-                out_dict[i] = {'name': name,
-                    'body': np.load(osp.join(template_dir, prefix + '_body.npy'))}
-                if osp.exists(osp.join(template_dir, prefix + '_hand.npy')):
-                    out_dict[i]['hand'] = np.load(osp.join(template_dir, prefix + '_hand.npy'))
-                if osp.exists(osp.join(template_dir, prefix + '_face.npy')):
-                    out_dict[i]['face'] = np.load(osp.join(template_dir, prefix + '_face.npy'))
+            prefix = splitext(name)[0]
+            if exists(join(pose_dir, prefix + '_pose.pkl')):
+                out_dict[i] = pkl_load(join(pose_dir, prefix + '_pose.pkl'))
+                out_dict[i]['name'] = name
         print(f"Load {len(out_dict)} pose templates from {template_dir}")
         return out_dict
 
@@ -46,17 +45,11 @@ class TemplatePoseAdapter(object):
     def __call__(self, canvas, body_kpts, body_kpt_valid, **kwargs):
         # random select template hand pose
         template = random.choice(self.template)
-        for _ in range(10):
-            if 'body' in template and 'hand' in template:
-                break
-            template = random.choice(self.template)
-        assert 'body' in template
-        assert 'hand' in template
 
         H, W, _ = canvas.shape
         # 1. scale hand pose
-        template_body = template['body'][..., :2] * np.array([W - 1, H - 1])
-        template_hand = template['hand'][..., :2] * np.array([W - 1, H - 1])
+        template_body = template['body']['keypoints'][..., :2] * np.array([W - 1, H - 1])
+        template_hand = template['hand']['keypoints'][..., :2] * np.array([W - 1, H - 1])
         # compute scaling factor
         scale_factor = self.compute_scale_factor(body_kpts, template_body)
         num_hands, num_pts, _ = template_hand.shape
@@ -85,9 +78,14 @@ class TemplatePoseAdapter(object):
             vy_right = src_body[4] - src_body[3]
             right_hands[i] = points_rotate(right_hands[i], vx_right, vy_right, src_body[4])
 
-        left_hands = np.stack(left_hands)
-        right_hands = np.stack(right_hands)
-        return np.concatenate([left_hands, right_hands])
+        hand_kpts = np.concatenate([np.stack(left_hands), np.stack(right_hands)])
+        hand_kpt_valid = np.ones(hand_kpts.shape[:2])
+        hand_kpt_valid = hand_kpt_valid.reshape([-1, 2, 21])
+        # left wrist: 7
+        hand_kpt_valid = np.where(body_kpt_valid[:, 7:8][:, None], hand_kpt_valid, 0)
+        # right wrist: 4
+        hand_kpt_valid = np.where(body_kpt_valid[:, 4:5][:, None], hand_kpt_valid, 0)
+        return hand_kpts, hand_kpt_valid.reshape([-1, 21])
 
 
 def points_translation(points, px, py):

@@ -34,4 +34,3 @@ print('Done!')
 # Image.fromarray(vis).save("canny.jpg")
 #
 # print("DOne!")
-

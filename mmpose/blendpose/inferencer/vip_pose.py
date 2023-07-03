@@ -30,6 +30,7 @@ class VIPPoseInferencer(object):
                  handpose_pth=None,
                  facepose_cfg=None,
                  facepose_pth=None,
+                 is_hand_intersection=False,
                  kpt_thr=0.3,
                  bbox_thr=0.4,
                  nms_thr=0.4,
@@ -42,6 +43,7 @@ class VIPPoseInferencer(object):
         self.template_dir = template_dir
         self.return_results = return_results
         self.handpose_cfg = handpose_cfg
+        self.is_hand_intersection = is_hand_intersection
         self.kpt_thr = kpt_thr
         self.bbox_thr = bbox_thr
         self.nms_thr = nms_thr
@@ -153,6 +155,16 @@ class VIPPoseInferencer(object):
                         3, (255, 255, 255), thickness=-1)
         return canvas
 
+    def pack_results(self, kpts, kpt_scores, bboxes, h, w):
+        # normalize keypoints
+        return {
+            "keypoints": np.concatenate(
+                [kpts.astype('float32') / np.array([w - 1, h - 1]),
+                 kpt_scores[..., None]], axis=-1),
+            "bboxes": bboxes.astype(
+                'float32') / np.array([w - 1, h - 1, w - 1, h - 1])
+        }
+
     def pred_body_pose(self, img, canvas=None):
         # predict human bboxes
         bboxes, canvas = self.detector(img, canvas)
@@ -186,25 +198,26 @@ class VIPPoseInferencer(object):
                 candidate = np.stack(candidate, axis=0)
                 subset = np.stack(subset, axis=0)
                 # predict hand bboxes
-                hands_list = openposeHandDetect(candidate, subset, img)
-                if hands_list:
+                hand_bboxes = openposeHandDetect(candidate, subset, img)
+                if hand_bboxes:
+                    hand_bboxes = [[a[0], a[1], a[0] + a[2], a[1] + a[2]] for a in hand_bboxes]
+                    hand_bboxes = np.asarray(hand_bboxes)
                     if self.draw_bbox and canvas is not None:
-                        hand_bboxes = [[a[0], a[1], a[0] + a[2], a[1] + a[2]] for a in hands_list]
-                        hand_bboxes = np.asarray(hand_bboxes)
                         canvas = mmcv.imshow_bboxes(canvas, hand_bboxes, 'green', show=False)
                     # predict hand keypoints
                     hand_kpts = []
                     hand_kpt_scores = []
-                    for x, y, w, is_left in hands_list:
-                        peaks = self.handpose_estimator(img[y:y + w, x:x + w, ::-1]).astype(np.float32)
+                    for x1, y1, x2, y2 in hand_bboxes:
+                        peaks = self.handpose_estimator(img[y1:y2, x1:x2, ::-1]).astype(np.float32)
                         scores = np.where(peaks.sum(-1) < 0, 0, 1)
-                        hand_kpts.append(peaks + np.array([x, y]))
+                        hand_kpts.append(peaks + np.array([x1, y1]))
                         hand_kpt_scores.append(scores)
-                    results = (np.stack(hand_kpts), np.stack(hand_kpt_scores))
+                    results = (np.stack(hand_kpts), np.stack(hand_kpt_scores), hand_bboxes)
         else:
             # predict hand bboxes
             hand_bboxes = hand_detect(body_kpts, body_kpt_scores > self.kpt_thr, (H, W))
-            hand_bboxes = get_bbox_intersection(hand_bboxes, body_bboxes[:, None])
+            if self.is_hand_intersection:
+                hand_bboxes = get_bbox_intersection(hand_bboxes, body_bboxes[:, None])
             hand_bboxes = hand_bboxes.reshape([-1, 4])
             if self.draw_bbox and canvas is not None:
                 canvas = mmcv.imshow_bboxes(canvas, hand_bboxes, 'green', show=False)
@@ -223,7 +236,7 @@ class VIPPoseInferencer(object):
                                            (hand_bboxes[:, 3:4] - hand_kpts[..., 1]) > 0)
                 hand_kpt_scores = np.where(
                     np.logical_and(in_bbox_x, in_bbox_y), hand_kpt_scores, 0)
-                results = (hand_kpts, hand_kpt_scores)
+                results = (hand_kpts, hand_kpt_scores, hand_bboxes)
         return results, canvas
 
     def pred_face_pose(self, img, body_kpts, body_kpt_valid, canvas=None):
@@ -252,9 +265,7 @@ class VIPPoseInferencer(object):
 
         # 1. predict body pose
         pred_body, canvas = self.pred_body_pose(img, canvas)
-        body_kpts_saved = None
-        hand_kpts_saved = None
-        face_kpts_saved = None
+        body_res, hand_res, face_res = None, None, None
         if pred_body:
             # transfer `mmpose` to `openpose` format
             body_kpts, body_kpt_scores = mmpose2openpose(
@@ -263,11 +274,8 @@ class VIPPoseInferencer(object):
             body_kpts[..., 0] = np.clip(body_kpts[..., 0], 0, W - 1)
             body_kpts[..., 1] = np.clip(body_kpts[..., 1], 0, H - 1)
             if self.return_results:
-                # normalize body keypoints
-                body_kpts_saved = body_kpts.astype(
-                    'float32') / np.array([W - 1, H - 1])
-                body_kpts_saved = np.concatenate(
-                    [body_kpts_saved, body_kpt_scores[..., None]], axis=-1)
+                body_res = self.pack_results(
+                    body_kpts, body_kpt_scores, pred_body.bboxes, H, W)
             # Draw body pose
             canvas = draw_bodypose(canvas, body_kpts, body_kpt_valid, is_origin)
 
@@ -277,16 +285,14 @@ class VIPPoseInferencer(object):
                     img, canvas, body_kpts, body_kpt_scores, pred_body.bboxes)
                 # draw hand pose
                 if pred_hand:
-                    hand_kpts, hand_kpt_scores = pred_hand
+                    hand_kpts, hand_kpt_scores, hand_bboxes = pred_hand
                     if self.return_results:
-                        hand_kpts_saved = hand_kpts.astype(
-                            'float32') / np.array([W - 1, H - 1])
-                        hand_kpts_saved = np.concatenate(
-                            [hand_kpts_saved, hand_kpt_scores[..., None]], axis=-1)
+                        hand_res = self.pack_results(
+                            hand_kpts, hand_kpt_scores, hand_bboxes, H, W)
                     canvas = draw_handpose(canvas, hand_kpts, hand_kpt_scores > self.kpt_thr)
             elif self.template_dir is not None:
-                hand_kpts = self.template_adapter(canvas, body_kpts, body_kpt_valid)
-                canvas = draw_handpose(canvas, hand_kpts, np.ones(hand_kpts.shape[:2]))
+                hand_kpts, hand_kpt_valid = self.template_adapter(canvas, body_kpts, body_kpt_valid)
+                canvas = draw_handpose(canvas, hand_kpts, hand_kpt_valid)
 
             # 3. predict face pose
             if self.use_face:
@@ -298,6 +304,6 @@ class VIPPoseInferencer(object):
                         pred_face.keypoint_scores > self.kpt_thr)
 
         if self.return_results:
-            return canvas, (body_kpts_saved, hand_kpts_saved, face_kpts_saved)
+            return canvas, {'body': body_res, 'hand': hand_res, 'face': face_res}
         else:
             return canvas
