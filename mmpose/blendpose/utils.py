@@ -103,7 +103,7 @@ def hand_detect(kpts,
                 img_shape,
                 min_hand_bbox=20,
                 ratio_wrist_elbow=0.333,
-                ratio_distance=1.1):
+                ratio_distance=1.2):
     """
         right: shoulder 2, elbow 3, wrist 4
         left: shoulder 5, elbow 6, wrist 7
@@ -135,24 +135,24 @@ def hand_detect(kpts,
             int(y1),
             int(x2),
             int(y2)
-        ] if x2 - x1 >= min_hand_bbox and y2 - y1 >= min_hand_bbox else None
+        ] if x2 - x1 >= min_hand_bbox and y2 - y1 >= min_hand_bbox else [0, 0, 0, 0]
 
     h, w = img_shape
     detect_result = []
     for body, is_valid in zip(kpts, kpt_valid):
+        single_result = []
         # left hand
         if np.sum(is_valid[[6, 7]]) == 2:
             left_shoulder = body[5] if is_valid[5] == 1 else None
             out = comput_hand_bbox(body[7], body[6], h, w, left_shoulder)
-            if out:
-                detect_result.append(out)
+            single_result.append(out)
         # right hand
         if np.sum(is_valid[[3, 4]]) == 2:
             right_shoulder = body[2] if is_valid[2] == 1 else None
             out = comput_hand_bbox(body[4], body[3], h, w, right_shoulder)
-            if out:
-                detect_result.append(out)
-    return np.asarray(detect_result)
+            single_result.append(out)
+        detect_result.append(np.asarray(single_result))
+    return np.stack(detect_result)
 
 
 def draw_handpose(canvas, kpts, kpt_valid, radius=4, show_number=False):
@@ -188,6 +188,22 @@ def draw_handpose(canvas, kpts, kpt_valid, radius=4, show_number=False):
                         0.3, (0, 0, 0),
                         lineType=cv2.LINE_AA)
     return canvas
+
+
+def get_bbox_intersection(bbox1, bbox2):
+    """
+    Calculate the intersection bbox of `bbox1` and `bbox2`
+    Args:
+        bbox1 (ndarray): shape[..., 4], `x1y1x2y2` format.
+        bbox2 (ndarray): shape[..., 4], `x1y1x2y2` format.
+
+    Returns: `inter_bbox`: shape[..., 4], `x1y1x2y2` format.
+    """
+    x1 = np.maximum(bbox1[..., 0], bbox2[..., 0])
+    y1 = np.maximum(bbox1[..., 1], bbox2[..., 1])
+    x2 = np.minimum(bbox1[..., 2], bbox2[..., 2])
+    y2 = np.minimum(bbox1[..., 3], bbox2[..., 3])
+    return np.stack([x1, y1, x2, y2], axis=-1)
 
 
 def transfer(model, model_weights):
