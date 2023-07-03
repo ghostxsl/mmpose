@@ -106,6 +106,9 @@ def main():
 
     mkdir_or_exist(args.out_dir)
     if args.img_dir:
+        if args.return_results:
+            mkdir_or_exist(os.path.join(args.out_dir, "pose"))
+            mkdir_or_exist(os.path.join(args.out_dir, "res"))
         for line in os.listdir(args.img_dir):
             if os.path.splitext(line)[-1].lower() in ['.jpg', '.png']:
                 # inference
@@ -113,17 +116,19 @@ def main():
                 img = np.asarray(Image.open(img_file).convert("RGB"))
                 if args.return_results:
                     canvas, results = inferencer(img.copy(), img.copy())
+                    save_name = os.path.join(args.out_dir, "res", line)
                     body, hand, face = results
                     if body is not None:
-                        np.save(os.path.join(args.out_dir, line.split('.')[0] + "_body"), body)
+                        np.save(os.path.join(args.out_dir, "pose", line.split('.')[0] + "_body"), body)
                     if hand is not None:
-                        np.save(os.path.join(args.out_dir, line.split('.')[0] + "_hand"), hand)
+                        np.save(os.path.join(args.out_dir, "pose", line.split('.')[0] + "_hand"), hand)
                     if face is not None:
-                        np.save(os.path.join(args.out_dir, line.split('.')[0] + "_face"), face)
+                        np.save(os.path.join(args.out_dir, "pose", line.split('.')[0] + "_face"), face)
                 else:
                     canvas = inferencer(img.copy(), img.copy())
-                Image.fromarray(canvas).save(os.path.join(args.out_dir, line))
-                print(f"{os.path.join(args.out_dir, line)} has been saved")
+                    save_name = os.path.join(args.out_dir, line)
+                Image.fromarray(canvas).save(save_name)
+                print(f"{save_name} has been saved")
     elif args.img_file:
         img = np.asarray(Image.open(args.img_file).convert("RGB"))
         name = os.path.basename(args.img_file)

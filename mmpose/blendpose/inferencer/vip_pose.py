@@ -12,7 +12,8 @@ from mmpose.blendpose import Hand, openposeHandDetect
 from mmpose.blendpose.inferencer.detector import Detector
 from mmpose.blendpose.utils import (mmpose2openpose,
                                     draw_bodypose,
-                                    hand_detect, draw_handpose)
+                                    hand_detect, draw_handpose,
+                                    get_bbox_intersection)
 
 
 class VIPPoseInferencer(object):
@@ -159,7 +160,7 @@ class VIPPoseInferencer(object):
         pose_results = inference_topdown(self.bodypose_estimator, img, bboxes)
         return merge_data_samples(pose_results).get('pred_instances', None), canvas
 
-    def pred_hand_pose(self, img, canvas, body_kpts, body_kpt_scores):
+    def pred_hand_pose(self, img, canvas, body_kpts, body_kpt_scores, body_bboxes):
         H, W, _ = img.shape
         results = None
         if self.handpose_cfg == "openpose":
@@ -203,6 +204,8 @@ class VIPPoseInferencer(object):
         else:
             # predict hand bboxes
             hand_bboxes = hand_detect(body_kpts, body_kpt_scores > self.kpt_thr, (H, W))
+            hand_bboxes = get_bbox_intersection(hand_bboxes, body_bboxes[:, None])
+            hand_bboxes = hand_bboxes.reshape([-1, 4])
             if self.draw_bbox and canvas is not None:
                 canvas = mmcv.imshow_bboxes(canvas, hand_bboxes, 'green', show=False)
             # predict hand keypoints
@@ -271,7 +274,7 @@ class VIPPoseInferencer(object):
             # 2. predict hand pose or use template matching
             if self.use_hand:
                 pred_hand, canvas = self.pred_hand_pose(
-                    img, canvas, body_kpts, body_kpt_scores)
+                    img, canvas, body_kpts, body_kpt_scores, pred_body.bboxes)
                 # draw hand pose
                 if pred_hand:
                     hand_kpts, hand_kpt_scores = pred_hand
