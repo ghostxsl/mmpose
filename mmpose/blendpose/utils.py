@@ -45,15 +45,13 @@ def mmpose2openpose(body_kpts, body_kpt_scores, kpt_thr=0.4):
     return keypoints_info[..., :2], keypoints_info[..., 2]
 
 
-def draw_bodypose(canvas, kpts, kpt_valid, is_origin=False,
-                  stickwidth=4, radius=4, alpha=0.6, show_number=False):
+def draw_bodypose(canvas, kpts, kpt_valid, stickwidth=4,
+                  radius=4, alpha=0.6, show_number=False):
     """
     Args:
         canvas (ndarray): shape[H, W, 3]
         kpts (ndarray): shape[n, 18, 2]
         kpt_valid (ndarray: bool): shape[n, 18]
-        is_origin (bool): If `canvas` is not the original image,
-                        it needs to be multiplied by `alpha`. Default: False.
         stickwidth (int): Default 4.
         radius (int): Default 4.
         alpha (float): Default 0.6.
@@ -87,10 +85,8 @@ def draw_bodypose(canvas, kpts, kpt_valid, is_origin=False,
                 polygon = cv2.ellipse2Poly((int(mean_XY[0]), int(mean_XY[1])),
                                            (int(length / 2), stickwidth),
                                            int(angle), 0, 360, 1)
-                cv2.fillConvexPoly(canvas, polygon, color)
+                cv2.fillConvexPoly(canvas, polygon, [int(float(c) * alpha) for c in color])
 
-    if not is_origin:
-        canvas = (canvas.astype('float32') * alpha).astype('uint8')
     # draw points
     for i, color in enumerate(colors):
         for kpt, is_valid in zip(kpts, kpt_valid):

@@ -22,8 +22,8 @@ class VIPPoseInferencer(object):
                  det_pth,
                  bodypose_cfg,
                  bodypose_pth,
-                 use_hand=True,
-                 use_face=True,
+                 use_hand=False,
+                 use_face=False,
                  template_dir=None,
                  return_results=False,
                  handpose_cfg=None,
@@ -259,7 +259,6 @@ class VIPPoseInferencer(object):
         """
         H, W, C = img.shape
         assert C == 3, "The input image can only be in RGB format."
-        is_origin = canvas is not None
         if canvas is None:
             canvas = np.zeros(shape=(H, W, 3), dtype=np.uint8)
 
@@ -277,7 +276,7 @@ class VIPPoseInferencer(object):
                 body_res = self.pack_results(
                     body_kpts, body_kpt_scores, pred_body.bboxes, H, W)
             # Draw body pose
-            canvas = draw_bodypose(canvas, body_kpts, body_kpt_valid, is_origin)
+            canvas = draw_bodypose(canvas, body_kpts, body_kpt_valid)
 
             # 2. predict hand pose or use template matching
             if self.use_hand:
