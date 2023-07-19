@@ -7,8 +7,8 @@ from mmpose.apis import inference_topdown
 from mmpose.apis import init_model as init_pose_estimator
 from mmpose.structures import merge_data_samples
 
-from mmpose.blendpose import TemplatePoseAdapter
-from mmpose.blendpose import Hand, openposeHandDetect
+from mmpose.blendpose.template_adapter import TemplatePoseAdapter
+from mmpose.blendpose.openpose import Hand, openposeHandDetect
 from mmpose.blendpose.inferencer.detector import Detector
 from mmpose.blendpose.utils import (mmpose2openpose,
                                     draw_bodypose,

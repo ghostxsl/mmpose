@@ -1,5 +1,4 @@
-from . import detector
-from . import vip_pose
-
+# Copyright (c) wilson.xu. All rights reserved.
+from . import detector, vip_pose
 from .detector import *
 from .vip_pose import *
