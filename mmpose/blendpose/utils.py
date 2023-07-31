@@ -154,11 +154,15 @@ def hand_detect(kpts,
             left_shoulder = body[5] if is_valid[5] == 1 else None
             out = comput_hand_bbox(body[7], body[6], h, w, left_shoulder)
             single_result.append(out)
+        else:
+            single_result.append([0, 0, 0, 0])
         # right hand
         if np.sum(is_valid[[3, 4]]) == 2:
             right_shoulder = body[2] if is_valid[2] == 1 else None
             out = comput_hand_bbox(body[4], body[3], h, w, right_shoulder)
             single_result.append(out)
+        else:
+            single_result.append([0, 0, 0, 0])
         detect_result.append(np.asarray(single_result))
     return np.stack(detect_result)
 
