@@ -59,7 +59,17 @@ def main():
         default=0.4,
         help='IoU threshold for bounding box NMS')
     parser.add_argument(
-        '--kpt_thr',
+        '--body_kpt_thr',
+        type=float,
+        default=0.3,
+        help='Visualizing keypoint thresholds')
+    parser.add_argument(
+        '--hand_kpt_thr',
+        type=float,
+        default=0.3,
+        help='Visualizing keypoint thresholds')
+    parser.add_argument(
+        '--face_kpt_thr',
         type=float,
         default=0.3,
         help='Visualizing keypoint thresholds')
@@ -83,7 +93,19 @@ def main():
     parser.add_argument(
         '--draw_bbox', action='store_true', help='Draw bboxes of instances')
     parser.add_argument(
+        '--draw_img', action='store_true', help='Draw results on the image')
+    parser.add_argument(
         '--is_hand_intersection', action='store_true', help='is_hand_intersection')
+    parser.add_argument(
+        '--start',
+        type=int,
+        default=0,
+        help='Starting index')
+    parser.add_argument(
+        '--end',
+        type=int,
+        default=-1,
+        help='Ending Index')
 
     args = parser.parse_args()
     assert args.det_config is not None
@@ -101,7 +123,9 @@ def main():
         facepose_cfg=args.face_cfg,
         facepose_pth=args.face_pth,
         is_hand_intersection=args.is_hand_intersection,
-        kpt_thr=args.kpt_thr,
+        body_kpt_thr=args.body_kpt_thr,
+        hand_kpt_thr=args.hand_kpt_thr,
+        face_kpt_thr=args.face_kpt_thr,
         bbox_thr=args.bbox_thr,
         nms_thr=args.nms_thr,
         det_cat_id=args.det_cat_id,
@@ -114,30 +138,34 @@ def main():
             mkdir_or_exist(os.path.join(args.out_dir, "pose"))
             mkdir_or_exist(os.path.join(args.out_dir, "res"))
         img_list = os.listdir(args.img_dir)
+        start = args.start
+        end = args.end if args.end > 0 else len(img_list)
+        img_list = img_list[start:end]
+        print(f"infer index: {start} => {end}")
         for i, line in enumerate(img_list):
-            if os.path.splitext(line)[-1].lower() in ['.jpg', '.png']:
+            if os.path.splitext(line)[-1].lower() in ['.jpg', '.jpeg', '.png']:
                 # inference
                 img_file = os.path.join(args.img_dir, line)
                 img = np.asarray(Image.open(img_file).convert("RGB"))
                 if args.return_results:
-                    canvas, results = inferencer(img.copy(), img.copy())
+                    canvas, results = inferencer(img.copy(), img.copy() if args.draw_img else None)
                     pkl_save(results,
                              os.path.join(args.out_dir, "pose", line.split('.')[0] + "_pose.pkl"))
                     save_name = os.path.join(args.out_dir, "res", line)
                 else:
-                    canvas = inferencer(img.copy(), img.copy())
+                    canvas = inferencer(img.copy(), img.copy() if args.draw_img else None)
                     save_name = os.path.join(args.out_dir, line)
                 Image.fromarray(canvas).save(save_name)
-                print(f"{i + 1}/{len(img_list)}: {save_name} has been saved")
+                print(f"{i + start}/{len(img_list) + start}: {save_name} has been saved")
     elif args.img_file:
         img = np.asarray(Image.open(args.img_file).convert("RGB"))
         name = os.path.basename(args.img_file)
         if args.return_results:
-            canvas, results = inferencer(img.copy(), img.copy())
+            canvas, results = inferencer(img.copy(), img.copy() if args.draw_img else None)
             pkl_save(results,
                      os.path.join(args.out_dir, name.split('.')[0] + "_pose.pkl"))
         else:
-            canvas = inferencer(img.copy(), img.copy())
+            canvas = inferencer(img.copy(), img.copy() if args.draw_img else None)
         Image.fromarray(canvas).save(os.path.join(args.out_dir, name))
         print(f"{os.path.join(args.out_dir, name)} has been saved")
     else:

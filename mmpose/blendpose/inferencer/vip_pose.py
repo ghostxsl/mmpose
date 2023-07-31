@@ -31,7 +31,9 @@ class VIPPoseInferencer(object):
                  facepose_cfg=None,
                  facepose_pth=None,
                  is_hand_intersection=False,
-                 kpt_thr=0.3,
+                 body_kpt_thr=0.3,
+                 hand_kpt_thr=0.3,
+                 face_kpt_thr=0.3,
                  bbox_thr=0.4,
                  nms_thr=0.4,
                  det_cat_id=0,
@@ -44,7 +46,9 @@ class VIPPoseInferencer(object):
         self.return_results = return_results
         self.handpose_cfg = handpose_cfg
         self.is_hand_intersection = is_hand_intersection
-        self.kpt_thr = kpt_thr
+        self.body_kpt_thr = body_kpt_thr
+        self.hand_kpt_thr = hand_kpt_thr
+        self.face_kpt_thr = face_kpt_thr
         self.bbox_thr = bbox_thr
         self.nms_thr = nms_thr
         self.det_cat_id = det_cat_id
@@ -183,7 +187,7 @@ class VIPPoseInferencer(object):
                 total_scroe = 0
                 single_set = []
                 for kpt, score in zip(kpts, kpt_scores):
-                    if score > self.kpt_thr:
+                    if score > self.body_kpt_thr:
                         kpt = np.append(kpt, score)
                         kpt = np.append(kpt, idx)
                         candidate.append(kpt)
@@ -215,7 +219,7 @@ class VIPPoseInferencer(object):
                     results = (np.stack(hand_kpts), np.stack(hand_kpt_scores), hand_bboxes)
         else:
             # predict hand bboxes
-            hand_bboxes = hand_detect(body_kpts, body_kpt_scores > self.kpt_thr, (H, W))
+            hand_bboxes = hand_detect(body_kpts, body_kpt_scores > self.body_kpt_thr, (H, W))
             if self.is_hand_intersection:
                 hand_bboxes = get_bbox_intersection(hand_bboxes, body_bboxes[:, None])
             hand_bboxes = hand_bboxes.reshape([-1, 4])
@@ -268,8 +272,8 @@ class VIPPoseInferencer(object):
         if pred_body:
             # transfer `mmpose` to `openpose` format
             body_kpts, body_kpt_scores = mmpose2openpose(
-                pred_body.keypoints, pred_body.keypoint_scores, self.kpt_thr)
-            body_kpt_valid = body_kpt_scores > self.kpt_thr
+                pred_body.keypoints, pred_body.keypoint_scores, self.body_kpt_thr)
+            body_kpt_valid = body_kpt_scores > self.body_kpt_thr
             body_kpts[..., 0] = np.clip(body_kpts[..., 0], 0, W - 1)
             body_kpts[..., 1] = np.clip(body_kpts[..., 1], 0, H - 1)
             if self.return_results:
@@ -288,7 +292,7 @@ class VIPPoseInferencer(object):
                     if self.return_results:
                         hand_res = self.pack_results(
                             hand_kpts, hand_kpt_scores, hand_bboxes, H, W)
-                    canvas = draw_handpose(canvas, hand_kpts, hand_kpt_scores > self.kpt_thr)
+                    canvas = draw_handpose(canvas, hand_kpts, hand_kpt_scores > self.hand_kpt_thr)
             elif self.template_dir is not None:
                 hand_kpts, hand_kpt_valid = self.template_adapter(canvas, body_kpts, body_kpt_valid)
                 canvas = draw_handpose(canvas, hand_kpts, hand_kpt_valid)
@@ -300,7 +304,7 @@ class VIPPoseInferencer(object):
                 if pred_face:
                     canvas = self.draw_facepose(
                         canvas, pred_face.keypoints,
-                        pred_face.keypoint_scores > self.kpt_thr)
+                        pred_face.keypoint_scores > self.face_kpt_thr)
 
         if self.return_results:
             return canvas, {'body': body_res, 'hand': hand_res, 'face': face_res}
