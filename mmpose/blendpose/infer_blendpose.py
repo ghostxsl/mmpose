@@ -19,14 +19,17 @@ def main():
     parser = ArgumentParser()
     parser.add_argument('det_config', help='Config file for detection')
     parser.add_argument('det_checkpoint', help='Checkpoint file for detection')
-    parser.add_argument('body_config', help='Config file for pose')
-    parser.add_argument('body_checkpoint', help='Checkpoint file for pose')
 
-    parser.add_argument('--template_dir', default=None, help='Template dir')
+    parser.add_argument('--body_cfg', default=None, help='Config file for pose')
+    parser.add_argument('--body_pth', default=None, help='Checkpoint file for pose')
+    parser.add_argument('--wholebody_cfg', default=None, help='Config file for pose')
+    parser.add_argument('--wholebody_pth', default=None, help='Checkpoint file for pose')
     parser.add_argument('--hand_cfg', default=None, help='Config file for pose')
     parser.add_argument('--hand_pth', default=None, help='Checkpoint file for pose')
     parser.add_argument('--face_cfg', default=None, help='Config file for pose')
     parser.add_argument('--face_pth', default=None, help='Checkpoint file for pose')
+
+    parser.add_argument('--template_dir', default=None, help='Template dir')
     parser.add_argument(
         '--return_results', action='store_true', help='Return results')
 
@@ -113,15 +116,15 @@ def main():
 
     inferencer = VIPPoseInferencer(
         args.det_config, args.det_checkpoint,
-        args.body_config, args.body_checkpoint,
-        False if args.hand_cfg is None else True,
-        False if args.face_cfg is None else True,
-        args.template_dir,
-        args.return_results,
+        bodypose_cfg=args.body_cfg,
+        bodypose_pth=args.body_pth,
         handpose_cfg=args.hand_cfg,
         handpose_pth=args.hand_pth,
         facepose_cfg=args.face_cfg,
         facepose_pth=args.face_pth,
+        wholebodypose_cfg=args.wholebody_cfg,
+        wholebodypose_pth=args.wholebody_pth,
+        template_dir=args.template_dir,
         is_hand_intersection=args.is_hand_intersection,
         body_kpt_thr=args.body_kpt_thr,
         hand_kpt_thr=args.hand_kpt_thr,
@@ -148,12 +151,15 @@ def main():
                 img_file = os.path.join(args.img_dir, line)
                 img = np.asarray(Image.open(img_file).convert("RGB"))
                 if args.return_results:
-                    canvas, results = inferencer(img.copy(), img.copy() if args.draw_img else None)
+                    canvas, results = inferencer(img.copy(),
+                                                 img.copy() if args.draw_img else None,
+                                                 return_results=True)
                     pkl_save(results,
-                             os.path.join(args.out_dir, "pose", line.split('.')[0] + "_pose.pkl"))
+                             os.path.join(args.out_dir, "pose", os.path.splitext(line)[0] + "_pose.pkl"))
                     save_name = os.path.join(args.out_dir, "res", line)
                 else:
-                    canvas = inferencer(img.copy(), img.copy() if args.draw_img else None)
+                    canvas = inferencer(img.copy(),
+                                        img.copy() if args.draw_img else None)
                     save_name = os.path.join(args.out_dir, line)
                 Image.fromarray(canvas).save(save_name)
                 print(f"{i + start}/{len(img_list) + start}: {save_name} has been saved")
@@ -161,11 +167,14 @@ def main():
         img = np.asarray(Image.open(args.img_file).convert("RGB"))
         name = os.path.basename(args.img_file)
         if args.return_results:
-            canvas, results = inferencer(img.copy(), img.copy() if args.draw_img else None)
+            canvas, results = inferencer(img.copy(),
+                                         img.copy() if args.draw_img else None,
+                                         return_results=True)
             pkl_save(results,
                      os.path.join(args.out_dir, name.split('.')[0] + "_pose.pkl"))
         else:
-            canvas = inferencer(img.copy(), img.copy() if args.draw_img else None)
+            canvas = inferencer(img.copy(),
+                                img.copy() if args.draw_img else None)
         Image.fromarray(canvas).save(os.path.join(args.out_dir, name))
         print(f"{os.path.join(args.out_dir, name)} has been saved")
     else:

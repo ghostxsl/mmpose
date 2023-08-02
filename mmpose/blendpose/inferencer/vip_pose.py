@@ -20,16 +20,15 @@ class VIPPoseInferencer(object):
     def __init__(self,
                  det_cfg,
                  det_pth,
-                 bodypose_cfg,
-                 bodypose_pth,
-                 use_hand=False,
-                 use_face=False,
-                 template_dir=None,
-                 return_results=False,
+                 bodypose_cfg=None,
+                 bodypose_pth=None,
                  handpose_cfg=None,
                  handpose_pth=None,
                  facepose_cfg=None,
                  facepose_pth=None,
+                 wholebodypose_cfg=None,
+                 wholebodypose_pth=None,
+                 template_dir=None,
                  is_hand_intersection=False,
                  body_kpt_thr=0.3,
                  hand_kpt_thr=0.3,
@@ -39,12 +38,16 @@ class VIPPoseInferencer(object):
                  det_cat_id=0,
                  draw_bbox=False,
                  device='cuda'):
-
-        self.use_hand = use_hand
-        self.use_face = use_face
-        self.template_dir = template_dir
-        self.return_results = return_results
+        if bodypose_cfg is None and wholebodypose_cfg is None:
+            raise Exception(f"`bodypose_cfg` and `wholebodypose_cfg`"
+                            f" cannot be both `None`.")
+        self.init_body = bodypose_cfg is not None
+        self.init_hand = handpose_cfg is not None
+        self.init_face = facepose_cfg is not None
+        # body: [0:17], foot: [17:23], face: [23:91], hand: [91:133],
+        self.init_wholebody = wholebodypose_cfg is not None
         self.handpose_cfg = handpose_cfg
+        self.template_dir = template_dir
         self.is_hand_intersection = is_hand_intersection
         self.body_kpt_thr = body_kpt_thr
         self.hand_kpt_thr = hand_kpt_thr
@@ -53,18 +56,29 @@ class VIPPoseInferencer(object):
         self.nms_thr = nms_thr
         self.det_cat_id = det_cat_id
         self.draw_bbox = draw_bbox
-        # build detector
+
+        # build object detector
         self.detector = Detector(det_cfg, det_pth, bbox_thr,
                                  nms_thr, det_cat_id, draw_bbox, device)
+
+        # build whole body pose estimator
+        if self.init_wholebody:
+            self.wholebodypose_estimator = init_pose_estimator(
+                wholebodypose_cfg,
+                wholebodypose_pth,
+                device=device,
+                cfg_options=dict(model=dict(test_cfg=dict(output_heatmaps=False))))
+
         # build body pose estimator
-        self.bodypose_estimator = init_pose_estimator(
-            bodypose_cfg,
-            bodypose_pth,
-            device=device,
-            cfg_options=dict(model=dict(test_cfg=dict(output_heatmaps=False))))
+        if self.init_body:
+            self.bodypose_estimator = init_pose_estimator(
+                bodypose_cfg,
+                bodypose_pth,
+                device=device,
+                cfg_options=dict(model=dict(test_cfg=dict(output_heatmaps=False))))
 
         # build hand pose estimator
-        if use_hand:
+        if self.init_hand:
             if handpose_cfg == "openpose":
                 self.handpose_estimator = Hand(handpose_pth, device=device)
             else:
@@ -77,7 +91,7 @@ class VIPPoseInferencer(object):
             self.template_adapter = TemplatePoseAdapter(template_dir)
 
         # build face pose estimator
-        if self.use_face:
+        if self.init_face:
             self.facepose_estimator = init_pose_estimator(
                 facepose_cfg,
                 facepose_pth,
@@ -169,12 +183,10 @@ class VIPPoseInferencer(object):
                 'float32') / np.array([w - 1, h - 1, w - 1, h - 1])
         }
 
-    def pred_body_pose(self, img, canvas=None):
-        # predict human bboxes
-        bboxes, canvas = self.detector(img, canvas)
-        # predict body keypoints
-        pose_results = inference_topdown(self.bodypose_estimator, img, bboxes)
-        return merge_data_samples(pose_results).get('pred_instances', None), canvas
+    def pred_body_pose(self, img, bboxes, bodypose_estimator):
+        # predict body/wholebody keypoints
+        pose_results = inference_topdown(bodypose_estimator, img, bboxes)
+        return merge_data_samples(pose_results).get('pred_instances', None)
 
     def pred_hand_pose(self, img, canvas, body_kpts, body_kpt_scores, body_bboxes):
         H, W, _ = img.shape
@@ -265,48 +277,85 @@ class VIPPoseInferencer(object):
         assert C == 3, "The input image can only be in RGB format."
         if canvas is None:
             canvas = np.zeros(shape=(H, W, 3), dtype=np.uint8)
+        draw_body = kwargs.get('body', True)
+        draw_hand = kwargs.get('hand', True)
+        draw_face = kwargs.get('face', True)
+        return_results = kwargs.get('return_results', False)
 
+        # 0. predict human bboxes
+        human_bboxes, canvas = self.detector(img, canvas)
         # 1. predict body pose
-        pred_body, canvas = self.pred_body_pose(img, canvas)
+        if self.init_wholebody:
+            pred_wholebody = self.pred_body_pose(
+                img, human_bboxes, self.wholebodypose_estimator)
+        if self.init_body:
+            pred_body = self.pred_body_pose(
+                img, human_bboxes, self.bodypose_estimator)
+        elif self.init_wholebody:
+            pred_body = pred_wholebody
+        else:
+            raise Exception(f"`bodypose_cfg` and `wholebodypose_cfg`"
+                            f" cannot be both `None`.")
+
         body_res, hand_res, face_res = None, None, None
         if pred_body:
             # transfer `mmpose` to `openpose` format
             body_kpts, body_kpt_scores = mmpose2openpose(
-                pred_body.keypoints, pred_body.keypoint_scores, self.body_kpt_thr)
+                pred_body.keypoints[:, :17], pred_body.keypoint_scores[:, :17],
+                self.body_kpt_thr)
             body_kpt_valid = body_kpt_scores > self.body_kpt_thr
             body_kpts[..., 0] = np.clip(body_kpts[..., 0], 0, W - 1)
             body_kpts[..., 1] = np.clip(body_kpts[..., 1], 0, H - 1)
-            if self.return_results:
+            if return_results:
                 body_res = self.pack_results(
-                    body_kpts, body_kpt_scores, pred_body.bboxes, H, W)
-            # Draw body pose
-            canvas = draw_bodypose(canvas, body_kpts, body_kpt_valid)
+                    body_kpts, body_kpt_scores, human_bboxes, H, W)
+            if draw_body:
+                # Draw body pose
+                canvas = draw_bodypose(canvas, body_kpts, body_kpt_valid)
 
             # 2. predict hand pose or use template matching
-            if self.use_hand:
+            if self.init_wholebody:
+                if pred_wholebody:
+                    hand_kpts = pred_wholebody.keypoints[:, 91:]
+                    hand_kpts = hand_kpts.reshape([-1, 21, 2])
+                    hand_kpt_scores = pred_wholebody.keypoint_scores[:, 91:]
+                    hand_kpt_scores = hand_kpt_scores.reshape([-1, 21])
+                    if return_results:
+                        hand_bboxes = np.concatenate([
+                            hand_kpts.min(1), hand_kpts.max(1)
+                        ], axis=-1)
+                        hand_res = self.pack_results(
+                            hand_kpts, hand_kpt_scores, hand_bboxes, H, W)
+                    if draw_hand:
+                        canvas = draw_handpose(
+                            canvas, hand_kpts, hand_kpt_scores > self.hand_kpt_thr)
+            elif self.init_hand:
                 pred_hand, canvas = self.pred_hand_pose(
-                    img, canvas, body_kpts, body_kpt_scores, pred_body.bboxes)
+                    img, canvas, body_kpts, body_kpt_scores, human_bboxes)
                 # draw hand pose
                 if pred_hand:
                     hand_kpts, hand_kpt_scores, hand_bboxes = pred_hand
-                    if self.return_results:
+                    if return_results:
                         hand_res = self.pack_results(
                             hand_kpts, hand_kpt_scores, hand_bboxes, H, W)
-                    canvas = draw_handpose(canvas, hand_kpts, hand_kpt_scores > self.hand_kpt_thr)
+                    if draw_hand:
+                        canvas = draw_handpose(
+                            canvas, hand_kpts, hand_kpt_scores > self.hand_kpt_thr)
             elif self.template_dir is not None:
                 hand_kpts, hand_kpt_valid = self.template_adapter(canvas, body_kpts, body_kpt_valid)
-                canvas = draw_handpose(canvas, hand_kpts, hand_kpt_valid)
+                if draw_hand:
+                    canvas = draw_handpose(canvas, hand_kpts, hand_kpt_valid)
 
             # 3. predict face pose
-            if self.use_face:
+            if self.init_face:
                 pred_face, canvas = self.pred_face_pose(img, body_kpts, body_kpt_valid, canvas)
                 # Draw face pose
-                if pred_face:
+                if pred_face and draw_face:
                     canvas = self.draw_facepose(
                         canvas, pred_face.keypoints,
                         pred_face.keypoint_scores > self.face_kpt_thr)
 
-        if self.return_results:
+        if return_results:
             return canvas, {'body': body_res, 'hand': hand_res, 'face': face_res}
         else:
             return canvas
