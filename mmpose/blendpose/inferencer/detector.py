@@ -1,5 +1,6 @@
 # Copyright (c) wilson.xu. All rights reserved.
 import numpy as np
+from PIL import Image
 import mmcv
 from mmpose.utils import adapt_mmdet_pipeline
 from mmpose.evaluation.functional import nms
@@ -31,6 +32,10 @@ class Detector(object):
         self.model.cfg = adapt_mmdet_pipeline(self.model.cfg)
 
     def __call__(self, img, canvas=None, **kwargs):
+        if isinstance(img, (Image.Image, np.ndarray)):
+            img = np.array(img)
+        else:
+            raise Exception(f"Unsupported type: {type(img)}.")
         # predict human bboxes
         det_result = inference_detector(self.model, img)
         pred_instance = det_result.pred_instances.cpu().numpy()
