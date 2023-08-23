@@ -1,6 +1,7 @@
 # Copyright (c) wilson.xu. All rights reserved.
 import cv2
 import numpy as np
+from PIL import Image
 
 import mmcv
 from mmpose.apis import inference_topdown
@@ -273,14 +274,24 @@ class VIPPoseInferencer(object):
             canvas (ndarray|None):
         Returns: canvas
         """
+        if isinstance(img, (Image.Image, np.ndarray)):
+            img = np.array(img)
+        else:
+            raise Exception(f"Unsupported type: {type(img)}.")
+
         H, W, C = img.shape
         assert C == 3, "The input image can only be in RGB format."
         if canvas is None:
             canvas = np.zeros(shape=(H, W, 3), dtype=np.uint8)
+        elif isinstance(canvas, (Image.Image, np.ndarray)):
+            canvas = np.array(canvas)
+        else:
+            raise Exception(f"Unsupported type: {type(img)}.")
+
         draw_body = kwargs.get('body', True)
         draw_hand = kwargs.get('hand', True)
         draw_face = kwargs.get('face', True)
-        return_results = kwargs.get('return_results', False)
+        return_results = kwargs.get('return_results', True)
 
         # 0. predict human bboxes
         human_bboxes, canvas = self.detector(img, canvas)
